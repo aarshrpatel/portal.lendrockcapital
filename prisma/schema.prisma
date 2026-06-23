@@ -1,0 +1,81 @@
+// Setu — Loan Advisor OS
+// Lightweight persistence layer (SQLite) behind the staff-facing CRM.
+//
+// The spec calls for: Users, Clients, Cases/Opportunities, Loan profiles, Tasks,
+// Call logs, Notes, Documents, Document checklist items, Communications,
+// Lender submissions, Status history. The entities that the prototype actually
+// mutates (case stage, checklist item status, task completion, new leads,
+// borrower uploads) are persisted here. Presentational/derived content
+// (readiness factors, call scripts, report aggregates) is computed in lib/domain.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// One person can have multiple loan efforts over time, so the person record
+// (Client) is kept separate from the loan file (Case).
+model Client {
+  id    String @id
+  name  String
+  guj   String @default("")
+  phone String
+  email String
+  lang  String @default("English")
+
+  cases Case[]
+}
+
+model Case {
+  id            String   @id
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId      String
+
+  cat           String // sba | home | investor | refi
+  loan          String // human label, e.g. "SBA 7(a) — store acquisition"
+  borrower      String // w2 | self | business | investor
+  borrowerLabel String
+  amount        Int
+  stage         String // see STAGE keys in lib/domain
+  rep           String
+  readiness     Int    @default(0)
+  source        String
+  credit        String @default("—")
+  income        String @default("—")
+  timeline      String @default("—")
+  last          String @default("just now") // relative display string
+  idleDays      Int    @default(0) // drives "stalled" surfacing
+  tpl           String? // active checklist template override (null = derive from cat/borrower)
+  createdAt     DateTime @default(now())
+
+  docItems DocItem[]
+  tasks    Task[]
+}
+
+// Materialized checklist items (the "Document checklist engine" output).
+model DocItem {
+  id     String @id @default(cuid())
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+  idx    Int
+  name   String
+  hint   String
+  status String @default("requested") // requested | received | approved | rejected
+}
+
+model Task {
+  id     String  @id
+  case   Case    @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  caseId String
+  title  String
+  type   String // first | consult | docs | submission | nurture
+  pri    String // high | med | low
+  due    String
+  dueK   String // overdue | today | soon | future
+  reason String
+  done   Boolean @default(false)
+}
