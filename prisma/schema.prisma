@@ -1,12 +1,12 @@
-// Setu — Loan Advisor OS
-// Lightweight persistence layer (SQLite) behind the staff-facing CRM.
+// Lendrock Capital — Deal Operating System
+// Canonical data model per docs/portal-master-spec.md Module 09.
 //
-// The spec calls for: Users, Clients, Cases/Opportunities, Loan profiles, Tasks,
-// Call logs, Notes, Documents, Document checklist items, Communications,
-// Lender submissions, Status history. The entities that the prototype actually
-// mutates (case stage, checklist item status, task completion, new leads,
-// borrower uploads) are persisted here. Presentational/derived content
-// (readiness factors, call scripts, report aggregates) is computed in lib/domain.
+// SQLite for local dev (swap datasource to Postgres/Neon for production —
+// the schema is written to port: string-backed enums validated in lib/enums.ts,
+// money as integer cents, JSON payloads as serialized strings).
+//
+// Conventions: statuses SCREAMING_SNAKE · money Int cents · every mutation
+// audited via AuditLog · stage history immutable in StageEvent.
 
 generator client {
   provider = "prisma-client-js"
@@ -17,65 +17,507 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-// One person can have multiple loan efforts over time, so the person record
-// (Client) is kept separate from the loan file (Case).
-model Client {
-  id    String @id
-  name  String
-  guj   String @default("")
-  phone String
-  email String
-  lang  String @default("English")
+// ─────────────────────────── Party entities ───────────────────────────
 
-  cases Case[]
-}
-
-model Case {
-  id            String   @id
-  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  clientId      String
-
-  cat           String // sba | home | investor | refi
-  loan          String // human label, e.g. "SBA 7(a) — store acquisition"
-  borrower      String // w2 | self | business | investor
-  borrowerLabel String
-  amount        Int
-  stage         String // see STAGE keys in lib/domain
-  rep           String
-  readiness     Int    @default(0)
-  source        String
-  credit        String @default("—")
-  income        String @default("—")
-  timeline      String @default("—")
-  last          String @default("just now") // relative display string
-  idleDays      Int    @default(0) // drives "stalled" surfacing
-  tpl           String? // active checklist template override (null = derive from cat/borrower)
-  createdAt     DateTime @default(now())
-
-  docItems DocItem[]
-  tasks    Task[]
-}
-
-// Materialized checklist items (the "Document checklist engine" output).
-model DocItem {
-  id     String @id @default(cuid())
-  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  caseId String
-  idx    Int
+model User {
+  id     String  @id @default(cuid())
   name   String
-  hint   String
-  status String @default("requested") // requested | received | approved | rejected
+  email  String  @unique
+  role   String // LO | PROC | UW | CM | PRIN | ADMIN
+  active Boolean @default(true)
+
+  tasks     Task[]
+  approvals ApprovalSignoff[]
+}
+
+model Contact {
+  id         String  @id @default(cuid())
+  firstName  String
+  lastName   String
+  email      String  @default("")
+  phone      String  @default("")
+  ficoMid    Int?
+  kycStatus  String  @default("PENDING") // PENDING | VERIFIED | FAILED
+  ofacStatus String  @default("PENDING") // PENDING | CLEAR | POTENTIAL_MATCH | CONFIRMED
+
+  dealLinks DealContact[]
+}
+
+model Company {
+  id                   String @id @default(cuid())
+  legalName            String
+  dba                  String @default("")
+  ein                  String @default("")
+  entityType           String @default("LLC") // LLC | CORP | LP | PARTNERSHIP
+  state                String @default("")
+  naics                String @default("")
+  timeInBusinessMonths Int    @default(0)
+  kybStatus            String @default("PENDING") // PENDING | VERIFIED | FAILED
+  goodStandingAsOf     DateTime?
+
+  deals Deal[]
+}
+
+model Broker {
+  id              String  @id @default(cuid())
+  name            String
+  company         String  @default("")
+  email           String  @default("")
+  phone           String  @default("")
+  directContactOk Boolean @default(false)
+
+  leads Lead[]
+}
+
+model PartnerLender {
+  id             String @id @default(cuid())
+  name           String
+  programs       String @default("SBA_7A") // csv: SBA_7A,SBA_504,CONVENTIONAL
+  industries     String @default("") // csv NAICS prefixes; empty = all
+  minAmountCents Int    @default(0)
+  maxAmountCents Int    @default(0)
+  turnaroundDays Int    @default(30)
+  noShoppedDeals Boolean @default(false)
+  contactName    String @default("")
+  contactEmail   String @default("")
+
+  submissions SbaSubmission[]
+}
+
+// ─────────────────────────── Pipeline entities ───────────────────────────
+
+model Lead {
+  id             String    @id @default(cuid())
+  source         String // WEB | BROKER | REFERRAL | EVENT | CSV_IMPORT | QUICK_ADD | EMAIL_PARSE
+  formVariant    String    @default("")
+  utmSource      String    @default("")
+  utmCampaign    String    @default("")
+  firstName      String
+  lastName       String
+  email          String    @default("")
+  phone          String    @default("")
+  companyName    String    @default("")
+  state          String    @default("")
+  dealType       String    @default("") // HM | BB | WC | SBA (empty until classified)
+  useOfFunds     String    @default("")
+  amountCents    Int       @default(0)
+  fundingTimeline String   @default("") // ASAP | UNDER_30D | D30_90 | OVER_90D | EXPLORING
+  creditStated   String    @default("") // EXCELLENT | GOOD | FAIR | POOR | UNKNOWN
+  score          Int       @default(0)
+  band           String    @default("COOL") // HOT | WARM | COOL
+  stage          String    @default("NEW_LEAD") // NEW_LEAD | CONTACTED | QUALIFIED | CONVERTED | DEAD
+  stageEnteredAt DateTime  @default(now())
+  dqCode         String    @default("")
+  deadReason     String    @default("")
+  smsConsent     Boolean   @default(false)
+  nurtureOnly    Boolean   @default(false)
+  firstTouchAt   DateTime?
+  notes          String    @default("")
+
+  ownerId  String?
+  brokerId String?
+  broker   Broker? @relation(fields: [brokerId], references: [id])
+
+  deal      Deal?
+  createdAt DateTime @default(now())
+}
+
+model Deal {
+  id             String   @id @default(cuid())
+  dealNumber     String   @unique
+  dealType       String // HM | BB | WC | SBA
+  subType        String // HM_FF | HM_BTP | HM_GUC | BB_CRE | BB_BIZ | WC_STANDARD | WC_BORROWING_BASE | SBA_7A
+  stage          String   @default("APPLICATION")
+  stageEnteredAt DateTime @default(now())
+
+  leadId    String? @unique
+  lead      Lead?   @relation(fields: [leadId], references: [id])
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id])
+  ownerLoId String?
+
+  amountCents          Int    @default(0)
+  rateBps              Int    @default(0)
+  termMonths           Int    @default(12)
+  originationFeeBps    Int    @default(200)
+  useOfProceeds        String @default("")
+  state                String @default("")
+  targetCloseDate      DateTime?
+  ficoMid              Int?
+  monthlyRevenueCents  Int    @default(0) // BB / WC cash-flow basis
+  dscrBps              Int    @default(0) // DSCR x 10000
+  capitalSource        String @default("BALANCE_SHEET") // BALANCE_SHEET | SYNDICATED
+
+  // HM economics
+  asIsValueCents       Int @default(0)
+  arvCents             Int @default(0)
+  rehabBudgetCents     Int @default(0)
+  interestReserveCents Int @default(0)
+
+  prescreenResult   String @default("") // PASS | PASS_WITH_EXCEPTIONS | FAIL
+  prescreenSnapshot String @default("") // serialized JSON, immutable audit copy
+
+  approvedAmountCents Int?
+  approvedRateBps     Int?
+  fundedAt            DateTime?
+  maturityDate        DateTime?
+  servicingStatus     String    @default("") // CURRENT | LATE | DEFAULT_WORKOUT | PAID_OFF
+  deadReason          String    @default("")
+  declineReasons      String    @default("") // csv of decline codes
+  borrowerToken       String    @unique @default(cuid())
+
+  contacts      DealContact[]
+  collateral    Collateral[]
+  stageEvents   StageEvent[]
+  tasks         Task[]
+  documents     DocumentRequest[]
+  approvals     Approval[]
+  creditBoxRuns CreditBoxRun[]
+  participations Participation[]
+  transactions  Transaction[]
+  draws         DrawRequest[]
+  wcLine        WcLine?
+  messages      MessageLog[]
+  compliance    ComplianceCheck[]
+  form159       Form159Record?
+  sbaSubmissions SbaSubmission[]
+
+  createdAt DateTime @default(now())
+}
+
+model DealContact {
+  id           String  @id @default(cuid())
+  dealId       String
+  deal         Deal    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contactId    String
+  contact      Contact @relation(fields: [contactId], references: [id])
+  role         String  @default("GUARANTOR") // GUARANTOR | OWNER | SIGNER
+  ownershipPct Int     @default(0)
+}
+
+model Collateral {
+  id              String @id @default(cuid())
+  dealId          String
+  deal            Deal   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  address         String
+  city            String @default("")
+  state           String @default("")
+  zip             String @default("")
+  propertyType    String @default("SFR") // SFR | MULTI_2_4 | MULTI_5_PLUS | MIXED_USE | LAND | COMMERCIAL
+  asIsValueCents  Int    @default(0)
+  arvCents        Int    @default(0)
+  valuationProduct String @default("") // AVM_DESKTOP | EXT_BPO | HYBRID | FULL_APPRAISAL
+  valuationStatus String @default("") // ORDERED | INSPECTION_SCHEDULED | REPORT_RECEIVED | UW_ACCEPTED | UW_DISPUTED
+  titleStatus     String @default("") // ORDERED | PRELIM_RECEIVED | EXCEPTIONS_UNDER_REVIEW | CLEARED | COMMITMENT_FINAL
+  insuranceStatus String @default("") // REQUESTED | QUOTE_RECEIVED | BINDER_RECEIVED | VERIFIED
+}
+
+model StageEvent {
+  id        String   @id @default(cuid())
+  dealId    String?
+  deal      Deal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  leadId    String?
+  fromStage String
+  toStage   String
+  actor     String   @default("SYS")
+  note      String   @default("")
+  createdAt DateTime @default(now())
 }
 
 model Task {
-  id     String  @id
-  case   Case    @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  caseId String
-  title  String
-  type   String // first | consult | docs | submission | nurture
-  pri    String // high | med | low
-  due    String
-  dueK   String // overdue | today | soon | future
-  reason String
-  done   Boolean @default(false)
+  id           String    @id @default(cuid())
+  dealId       String?
+  deal         Deal?     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  leadId       String?
+  title        String
+  type         String    @default("GENERAL") // GENERAL | CALL | DOC_CHASE | REVIEW | ORDER | CLOSING | DRAW | COMPLIANCE
+  ownerRole    String // LO | PROC | UW | CM | PRIN | SYS
+  ownerUserId  String?
+  ownerUser    User?     @relation(fields: [ownerUserId], references: [id])
+  status       String    @default("OPEN") // OPEN | IN_PROGRESS | BLOCKED | WAITING_EXTERNAL | DONE | CANCELLED | WAIVED
+  priority     String    @default("MED") // HIGH | MED | LOW
+  dueAt        DateTime?
+  slaHours     Int?
+  playbookCode String    @default("")
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+}
+
+model DeadReason {
+  code         String  @id
+  coreCode     String
+  pathwayScope String  @default("ALL") // ALL or csv of HM,BB,WC,SBA
+  label        String
+  active       Boolean @default(true)
+}
+
+// ─────────────────────────── Documents ───────────────────────────
+
+model DocRequirement {
+  id            String @id @default(cuid())
+  docCode       String @unique
+  name          String
+  category      String // ENTITY | GUARANTOR | FINANCIALS | COLLATERAL | INSURANCE | SBA | CLOSING
+  dealTypes     String // csv HM,BB,WC,SBA (REQUIRED scope)
+  conditional   String @default("") // human-readable condition; empty = always required for listed types
+  freshnessDays Int    @default(0) // 0 = never expires
+  stageGate     String @default("") // stage whose exit requires ACCEPTED
+}
+
+model DocumentRequest {
+  id             String    @id @default(cuid())
+  dealId         String
+  deal           Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  docCode        String
+  name           String
+  category       String
+  status         String    @default("REQUESTED") // REQUESTED | UPLOADED | IN_REVIEW | ACCEPTED | REJECTED | EXPIRED
+  gateCritical   Boolean   @default(false)
+  stageGate      String    @default("")
+  rejectedReason String    @default("")
+  freshnessDays  Int       @default(0)
+  expiresAt      DateTime?
+  fileName       String    @default("")
+  uploadedAt     DateTime?
+  reviewedBy     String    @default("")
+  createdAt      DateTime  @default(now())
+}
+
+// ─────────────────────────── Credit & approvals ───────────────────────────
+
+model CreditBoxRule {
+  id       String  @id @default(cuid())
+  dealType String // HM | BB | WC
+  subType  String  @default("") // empty = all sub-types
+  field    String // e.g. ltv_bps, ltarv_bps, ltc_bps, fico_mid, monthly_revenue_cents, dscr_bps
+  op       String // LTE | GTE
+  value    Int
+  severity String  @default("SOFT") // HARD | SOFT
+  label    String
+  active   Boolean @default(true)
+}
+
+model CreditBoxRun {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  result    String // PASS | PASS_WITH_EXCEPTIONS | FAIL
+  flags     String   @default("[]") // serialized JSON array of {rule,label,severity,actual,limit}
+  snapshot  String   @default("{}") // immutable deal-values snapshot
+  createdAt DateTime @default(now())
+}
+
+model Approval {
+  id          String    @id @default(cuid())
+  dealId      String
+  deal        Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  type        String // CREDIT_DECISION | EXCEPTION | DRAW_RELEASE | EXTENSION | WC_LIMIT_CHANGE
+  tier        Int       @default(1)
+  status      String    @default("PENDING") // PENDING | APPROVED | APPROVED_WITH_CONDITIONS | DECLINED | RETURNED
+  requestedBy String    @default("SYS")
+  memo        String    @default("{}") // serialized credit memo snapshot
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
+
+  signoffs ApprovalSignoff[]
+}
+
+model ApprovalSignoff {
+  id           String    @id @default(cuid())
+  approvalId   String
+  approval     Approval  @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  approverRole String // UW | PRIN | CM
+  approverId   String?
+  approver     User?     @relation(fields: [approverId], references: [id])
+  decision     String    @default("PENDING") // PENDING | APPROVED | APPROVED_WITH_CONDITIONS | DECLINED | RETURNED
+  note         String    @default("")
+  decidedAt    DateTime?
+}
+
+// ─────────────────────────── Capital & money ───────────────────────────
+
+model Investor {
+  id                   String    @id @default(cuid())
+  type                 String    @default("INDIVIDUAL") // INDIVIDUAL | ENTITY
+  name                 String
+  email                String    @default("")
+  phone                String    @default("")
+  status               String    @default("PROSPECT") // PROSPECT | ONBOARDING | ACTIVE | INACTIVE
+  accreditationStatus  String    @default("SELF_CERTIFIED") // SELF_CERTIFIED | VERIFIED | EXPIRED | NONE
+  accreditationExpires DateTime?
+  capitalAvailableCents Int      @default(0)
+  prefDealTypes        String    @default("HM,BB") // csv
+  prefStates           String    @default("") // csv; empty = any
+  prefMinCents         Int       @default(2500000)
+  prefMaxCents         Int       @default(50000000)
+  prefTargetYieldBps   Int       @default(1000)
+  prefMaxLtvBps        Int       @default(7500)
+  ofacStatus           String    @default("PENDING")
+  portalToken          String    @unique @default(cuid())
+  createdAt            DateTime  @default(now())
+
+  participations Participation[]
+  transactions   Transaction[]
+}
+
+model Participation {
+  id             String    @id @default(cuid())
+  dealId         String
+  deal           Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  investorId     String
+  investor       Investor  @relation(fields: [investorId], references: [id])
+  committedCents Int
+  fundedCents    Int       @default(0)
+  rateBps        Int // investor rate (deal rate minus servicing strip)
+  status         String    @default("SOFT_COMMIT") // SOFT_COMMIT | DOCS_OUT | SIGNED | WIRED | ACTIVE | REPAID | CANCELLED
+  committedAt    DateTime  @default(now())
+  wiredAt        DateTime?
+}
+
+model Transaction {
+  id              String    @id @default(cuid())
+  dealId          String?
+  deal            Deal?     @relation(fields: [dealId], references: [id])
+  investorId      String?
+  investor        Investor? @relation(fields: [investorId], references: [id])
+  participationId String?
+  type            String // FUNDING_WIRE | PAYMENT | DRAW_DISBURSEMENT | DISTRIBUTION | FEE | DEPOSIT | PAYOFF
+  direction       String // IN | OUT
+  amountCents     Int
+  method          String    @default("ACH") // ACH | WIRE | CARD
+  status          String    @default("SETTLED") // INITIATED | SETTLED | RETURNED
+  date            DateTime  @default(now())
+  memo            String    @default("")
+}
+
+model DrawRequest {
+  id            String    @id @default(cuid())
+  dealId        String
+  deal          Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  amountCents   Int
+  status        String    @default("REQUESTED") // REQUESTED | INSPECTION_ORDERED | INSPECTION_RECEIVED | APPROVED | WIRED | REJECTED
+  inspectionPct Int       @default(0) // percent-complete supported by inspection
+  requestedAt   DateTime  @default(now())
+  decidedBy     String    @default("")
+  wiredAt       DateTime?
+}
+
+model WcLine {
+  id           String    @id @default(cuid())
+  dealId       String    @unique
+  deal         Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  limitCents   Int
+  drawnCents   Int       @default(0)
+  rateBps      Int
+  tier         String    @default("A") // A | B | C
+  status       String    @default("ACTIVE") // ACTIVE | FROZEN_SOFT | FROZEN_HARD | TERM_OUT | CLOSED
+  freezeReason String    @default("")
+  autopayDay   Int       @default(5)
+  renewalDate  DateTime?
+  metrics      String    @default("{}") // serialized SYS metric pack
+
+  draws WcDraw[]
+}
+
+model WcDraw {
+  id          String   @id @default(cuid())
+  lineId      String
+  line        WcLine   @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  amountCents Int
+  status      String   @default("REQUESTED") // REQUESTED | AUTO_APPROVED | REVIEW | APPROVED | SENT | REJECTED
+  autoChecks  String   @default("[]") // serialized check battery results
+  requestedAt DateTime @default(now())
+}
+
+// ─────────────────────────── SBA pathway ───────────────────────────
+
+model Form159Record {
+  id                String   @id @default(cuid())
+  dealId            String   @unique
+  deal              Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  status            String   @default("DRAFT") // DRAFT | SENT | SIGNED | COMPLETE
+  packagingFeeCents Int      @default(350000)
+  referralFeeBps    Int      @default(100)
+  updatedAt         DateTime @updatedAt
+}
+
+model SbaSubmission {
+  id          String        @id @default(cuid())
+  dealId      String
+  deal        Deal          @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  lenderId    String
+  lender      PartnerLender @relation(fields: [lenderId], references: [id])
+  status      String        @default("PREPARING") // PREPARING | SUBMITTED | IN_UW | PROPOSAL | APPROVED | DECLINED | WITHDRAWN
+  submittedAt DateTime?
+  notes       String        @default("")
+}
+
+// ─────────────────────────── Comms, templates, compliance ───────────────────────────
+
+model Template {
+  id             String  @id @default(cuid())
+  code           String  @unique
+  name           String
+  category       String // APPLICATION | TERM_SHEET | LEGAL | SERVICING | CAPITAL | PARTNER | SEQUENCE
+  dealTypes      String  @default("ALL")
+  delivery       String  @default("EMAIL") // EMAIL | SMS | ESIGN | PDF | WEB_FORM
+  body           String  @default("")
+  version        Int     @default(1)
+  attorneyReview Boolean @default(false)
+  active         Boolean @default(true)
+}
+
+model MessageLog {
+  id           String   @id @default(cuid())
+  dealId       String?
+  deal         Deal?    @relation(fields: [dealId], references: [id])
+  leadId       String?
+  investorId   String?
+  channel      String // EMAIL | SMS | PORTAL_NOTE | CALL_LOG
+  direction    String   @default("OUT") // IN | OUT
+  toAddress    String   @default("")
+  subject      String   @default("")
+  body         String   @default("")
+  templateCode String   @default("")
+  createdAt    DateTime @default(now())
+}
+
+model ComplianceCheck {
+  id         String    @id @default(cuid())
+  dealId     String
+  deal       Deal      @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  checkType  String // LICENSE_CHECK | USURY_CHECK | CFDL_DISCLOSURE | OFAC_SCREEN | ADVERSE_ACTION_TIMER | FORM_159
+  status     String    @default("PENDING") // PENDING | PASS | FAIL | BLOCKED | SENT
+  detail     String    @default("")
+  dueAt      DateTime?
+  resolvedAt DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model LicensingMatrix {
+  state        String  @id
+  licensed     Boolean @default(false)
+  licenseType  String  @default("")
+  cfdlRequired Boolean @default(false)
+  notes        String  @default("")
+}
+
+model OfacScreen {
+  id         String   @id @default(cuid())
+  partyType  String // CONTACT | COMPANY | INVESTOR
+  partyName  String
+  dealId     String?
+  result     String   @default("CLEAR") // CLEAR | POTENTIAL_MATCH | CONFIRMED
+  context    String   @default("") // e.g. APPLICATION, PRE_WIRE, QUARTERLY_BATCH
+  screenedAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actor      String
+  action     String
+  objectType String
+  objectId   String
+  detail     String   @default("")
+  createdAt  DateTime @default(now())
 }

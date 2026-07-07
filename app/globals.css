@@ -3,59 +3,149 @@
 @tailwind utilities;
 
 :root {
-  /* system stack for body; serif + gujarati come from next/font variables */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body {
-  margin: 0;
-  padding: 0;
+  color-scheme: light;
 }
 
 body {
-  background: #f5f6f7;
-  color: #1a1f24;
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
+  @apply bg-page text-body antialiased;
+  font-size: 14px;
+  line-height: 1.55;
+  font-feature-settings: "cv11", "ss01";
 }
 
-/* thin neutral scrollbars, ported from the prototype */
-::-webkit-scrollbar {
-  height: 10px;
-  width: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #cfd4d8;
-  border-radius: 6px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #b4bbc1;
-  background-clip: padding-box;
+*:focus-visible {
+  outline: 2px solid #1e5c44;
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+::selection {
+  background: #1e5c4426;
 }
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
+
+/* thin, quiet scrollbars for board rails */
+.rail-scroll::-webkit-scrollbar { height: 8px; }
+.rail-scroll::-webkit-scrollbar-track { background: transparent; }
+.rail-scroll::-webkit-scrollbar-thumb { background: #dddbd1; border-radius: 4px; }
+.rail-scroll::-webkit-scrollbar-thumb:hover { background: #c9c7bc; }
+
+/* ── surfaces ─────────────────────────────────────── */
+
+.card {
+  @apply bg-card border border-line rounded-lg shadow-card;
+}
+
+.h-serif {
+  @apply font-serif text-ink tracking-tight;
+}
+
+.label {
+  @apply text-2xs font-sans font-semibold uppercase tracking-[0.08em] text-muted;
+}
+
+.kcode {
+  @apply font-mono text-[11px] px-1.5 py-0.5 rounded bg-brand-tint text-brand whitespace-nowrap font-medium;
+}
+
+.kcode-warn { @apply bg-bronze-tint text-bronze; }
+.kcode-dead { @apply bg-oxide-tint text-oxide; }
+
+/* ── controls ─────────────────────────────────────── */
+
+.btn {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-md border border-line bg-card px-3 py-1.5 text-[13px] font-medium text-ink transition-all cursor-pointer select-none;
+}
+.btn:hover { @apply border-brand/60 text-brand shadow-card; }
+.btn:active { transform: translateY(0.5px); }
+
+.btn-primary {
+  @apply border-brand bg-brand text-white;
+}
+.btn-primary:hover { @apply bg-brand-hover border-brand-hover text-white; }
+
+.btn-danger {
+  @apply border-oxide/30 text-oxide bg-transparent;
+}
+.btn-danger:hover { @apply border-oxide bg-oxide-tint text-oxide shadow-none; }
+
+.btn[disabled], .btn-primary[disabled] {
+  @apply opacity-40 pointer-events-none;
+}
+
+.input {
+  @apply w-full rounded-md border border-line bg-white px-3 py-1.5 text-[13.5px] text-ink placeholder:text-faint transition-shadow;
+}
+.input:focus {
+  @apply outline-none border-brand ring-2 ring-brand/15;
+}
+
+select.input { @apply pr-8; }
+
+/* ── tables ───────────────────────────────────────── */
+
+.th {
+  @apply text-left text-2xs font-sans font-semibold uppercase tracking-[0.08em] text-faint px-3 py-2.5 border-b border-line whitespace-nowrap bg-page/40;
+}
+
+.td {
+  @apply px-3 py-2.5 border-b border-line3 align-middle tabular-nums text-[13px];
+}
+
+tbody tr { @apply transition-colors; }
+tbody tr:hover { @apply bg-brand-tint/25; }
+tbody tr:last-child .td { @apply border-b-0; }
+
+/* ── pills & indicators ───────────────────────────── */
+
+.pill {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-[2.5px] text-2xs font-semibold whitespace-nowrap;
+}
+
+.pill-dot {
+  @apply inline-block w-[6px] h-[6px] rounded-full shrink-0;
+}
+
+/* ── nav (sidebar) ────────────────────────────────── */
+
+.nav-item {
+  @apply flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] font-medium text-white/65 transition-colors;
+}
+.nav-item:hover { @apply text-white bg-white/[0.07]; }
+.nav-item.active {
+  @apply text-white bg-white/[0.10];
+  box-shadow: inset 2.5px 0 0 #6fbf9a;
+}
+
+.nav-group {
+  @apply text-[10px] font-semibold uppercase tracking-[0.14em] text-white/30 px-2.5 pt-5 pb-1.5;
+}
+
+/* ── checkbox-style done button ───────────────────── */
+
+.check-btn {
+  @apply w-[18px] h-[18px] rounded-[5px] border-[1.5px] border-line bg-white transition-all shrink-0 relative;
+}
+.check-btn:hover {
+  @apply border-brand bg-brand-tint;
+}
+.check-btn:hover::after {
+  content: "✓";
+  @apply absolute inset-0 flex items-center justify-center text-brand text-[11px] font-bold;
+}
+
+/* ── progress ─────────────────────────────────────── */
+
+.meter {
+  @apply h-1.5 rounded-full bg-line3 overflow-hidden;
+}
+.meter > div {
+  @apply h-full rounded-full bg-brand transition-all;
+}
+
+/* ── portal (external surfaces) ───────────────────── */
+
+.portal-hero {
+  background:
+    radial-gradient(1200px 400px at 80% -20%, rgba(111, 191, 154, 0.14), transparent 60%),
+    linear-gradient(180deg, #0f3326 0%, #14402f 100%);
 }
