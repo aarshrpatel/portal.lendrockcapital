@@ -3,8 +3,19 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createLeadRecord } from "@/app/actions";
+import { rateLimit } from "@/lib/ratelimit";
+import { PUBLIC_LEADS_RPM } from "@/lib/env";
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.ip ?? "unknown";
+  const limit = rateLimit(`leads:${ip}`, PUBLIC_LEADS_RPM);
+  if (!limit.ok) {
+    return NextResponse.json(
+      { error: "Too many requests — try again shortly." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } }
+    );
+  }
+
   let body: Record<string, unknown>;
   try {
     body = await req.json();

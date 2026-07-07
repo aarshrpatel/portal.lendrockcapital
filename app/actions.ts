@@ -8,7 +8,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getSession, requireUser, sessionCookieName } from "@/lib/auth";
+import { requireUser, sessionCookieName, sessionCookieOptions, mintSessionValue } from "@/lib/auth";
 import { audit, transitionDealStage, GateError } from "@/lib/domain/events";
 import { classifyDealType, scoreLead, checkKnockouts } from "@/lib/domain/scoring";
 import { runCreditBox } from "@/lib/domain/creditbox";
@@ -27,8 +27,10 @@ function reval() {
 export async function loginAs(formData: FormData) {
   const userId = String(formData.get("userId") ?? "");
   const user = await db.user.findUnique({ where: { id: userId } });
-  if (user) {
-    cookies().set(sessionCookieName(), user.id, { httpOnly: true, sameSite: "lax" });
+  if (user && user.active) {
+    const { value, maxAge } = mintSessionValue(user.id);
+    cookies().set(sessionCookieName(), value, { ...sessionCookieOptions(), maxAge });
+    await audit(user.role, "SESSION_START", "User", user.id, user.name);
   }
   redirect("/");
 }
