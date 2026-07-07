@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { money, rate, dt, ago } from "@/lib/format";
 import { activateInvestor } from "@/app/actions";
-import { Section, Stat, StatusPill, TypeBadge, Empty } from "@/components/ui";
+import { Section, Stat, StatusPill, TypeBadge, Empty, Avatar } from "@/components/ui";
 import { capitalRow } from "@/lib/domain/capital";
 
 export default async function InvestorDetail({ params }: { params: { id: string } }) {
@@ -20,21 +20,46 @@ export default async function InvestorDetail({ params }: { params: { id: string 
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="h-serif text-[26px] font-semibold">{investor.name}</h1>
-        <span className="kcode">{investor.type}</span>
-        <StatusPill status={investor.status} />
-        <StatusPill status={investor.accreditationStatus === "NONE" ? "PENDING" : investor.accreditationStatus === "EXPIRED" ? "EXPIRED" : "PASS"} />
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
+          <Avatar name={investor.name} size={44} />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="kcode">{investor.type}</span>
+              <StatusPill status={investor.status} />
+              <span className="text-2xs text-muted">
+                accreditation{" "}
+                <span className={`font-mono ${investor.accreditationStatus === "NONE" || investor.accreditationStatus === "EXPIRED" ? "text-bronze" : "text-brand"}`}>
+                  {investor.accreditationStatus.replace(/_/g, " ").toLowerCase()}
+                </span>
+              </span>
+            </div>
+            <h1 className="h-serif text-[25px] font-semibold leading-tight mt-0.5 truncate">{investor.name}</h1>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            {investor.status !== "ACTIVE" ? (
+              <form action={activateInvestor.bind(null, investor.id)}>
+                <button className="btn btn-primary">Activate — accreditation + OFAC + master agreement</button>
+              </form>
+            ) : (
+              <>
+                <span className="text-2xs text-faint text-right leading-relaxed">
+                  refresh due {dt(investor.accreditationExpires)}
+                  <br />
+                  {investor.email || "no email on file"}
+                </span>
+                <Link href={`/i/${investor.portalToken}`} className="btn">
+                  Investor portal ↗
+                </Link>
+              </>
+            )}
+          </div>
+        </div>
         {investor.status !== "ACTIVE" ? (
-          <form action={activateInvestor.bind(null, investor.id)} className="ml-auto">
-            <button className="btn btn-primary">Activate (accreditation + OFAC + master agreement)</button>
-          </form>
-        ) : (
-          <span className="text-2xs text-faint ml-auto">
-            accreditation refresh {dt(investor.accreditationExpires)} · portal /i/{investor.portalToken.slice(0, 8)}…{" "}
-            <Link href={`/i/${investor.portalToken}`} className="text-brand hover:underline">open ↗</Link>
-          </span>
-        )}
+          <p className="px-5 py-2.5 border-t border-line2 bg-bronze-tint/60 text-[12.5px] text-bronze font-medium">
+            Onboarding incomplete — this investor can&apos;t be matched to deals until ACTIVE.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

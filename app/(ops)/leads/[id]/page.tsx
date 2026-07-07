@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { money, ago, dt } from "@/lib/format";
@@ -23,18 +24,46 @@ export default async function LeadDetail({ params }: { params: { id: string } })
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="h-serif text-[26px] font-semibold">
-          {lead.firstName} {lead.lastName}
-        </h1>
-        {lead.dealType ? <TypeBadge dealType={lead.dealType} /> : null}
-        <StatusPill status={lead.stage} />
-        <StatusPill status={lead.band} />
-        <span className="font-mono text-[12px] text-muted">score {lead.score}/100</span>
-        {lead.deal ? (
-          <a href={`/deals/${lead.deal.id}`} className="btn ml-auto">
-            Open deal {lead.deal.dealNumber} →
-          </a>
+      <div className="card overflow-hidden">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] text-faint uppercase">{lead.source}</span>
+              {lead.dealType ? <TypeBadge dealType={lead.dealType} /> : null}
+              <StatusPill status={lead.stage} />
+              {lead.companyName ? <span className="text-2xs text-muted">{lead.companyName}</span> : null}
+            </div>
+            <h1 className="h-serif text-[25px] font-semibold leading-tight mt-0.5 truncate">
+              {lead.firstName} {lead.lastName}
+            </h1>
+          </div>
+          <div className="ml-auto flex items-center gap-3">
+            <div className="flex items-stretch divide-x divide-line2 rounded-lg border border-line2 bg-page/50">
+              {[
+                ["Score", `${lead.score}/100`],
+                ["Band", lead.band],
+                ["Amount", money(lead.amountCents, { compact: true })],
+                ["Timeline", lead.fundingTimeline ? lead.fundingTimeline.replace(/_/g, " ") : "—"],
+              ].map(([l, v]) => (
+                <div key={String(l)} className="px-4 py-2 text-center">
+                  <div className="label">{l}</div>
+                  <div className={`text-[14.5px] font-serif font-semibold tabular-nums mt-0.5 ${
+                    l === "Band" ? (v === "HOT" ? "text-oxide" : v === "WARM" ? "text-bronze" : "text-muted") : "text-ink"
+                  }`}>{v}</div>
+                </div>
+              ))}
+            </div>
+            {lead.deal ? (
+              <Link href={`/deals/${lead.deal.id}`} className="btn btn-primary">
+                Open {lead.deal.dealNumber} →
+              </Link>
+            ) : null}
+          </div>
+        </div>
+        {open && !lead.firstTouchAt && lead.stage === "NEW_LEAD" ? (
+          <p className="px-5 py-2.5 border-t border-line2 bg-oxide-tint/60 text-[12.5px] text-oxide font-medium">
+            Speed-to-lead clock running — human first touch due within 5 business minutes of capture.
+          </p>
         ) : null}
       </div>
 
@@ -105,7 +134,7 @@ export default async function LeadDetail({ params }: { params: { id: string } })
                 ) : null}
 
                 {lead.stage === "QUALIFIED" && lead.dealType ? (
-                  <form action={convertLead.bind(null, lead.id)} className="flex flex-wrap items-end gap-2 border-t border-line2 pt-4">
+                  <form action={convertLead.bind(null, lead.id)} className="flex flex-wrap items-end gap-2">
                     <div>
                       <label className="label block mb-1">Product</label>
                       <select name="subType" className="input w-56" required defaultValue="">
