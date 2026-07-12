@@ -42,8 +42,6 @@ export function subTypeLabel(code: string): string {
 // Lead pipeline (pre-conversion, Module 01)
 export const LEAD_STAGES = ["NEW_LEAD", "CONTACTED", "QUALIFIED", "CONVERTED", "DEAD"] as const;
 
-export const LEAD_BANDS = { HOT: 70, WARM: 40 } as const;
-
 // Deal pipeline (post-conversion). SBA replaces TERM_SHEET with its own
 // packaging stages per Module 05.
 export const DEAL_STAGES_STANDARD = [

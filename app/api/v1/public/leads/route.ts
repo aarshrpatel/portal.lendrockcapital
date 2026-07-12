@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createLeadRecord } from "@/app/actions";
 import { rateLimit } from "@/lib/ratelimit";
 import { PUBLIC_LEADS_RPM } from "@/lib/env";
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.ip ?? "unknown";
@@ -32,6 +33,12 @@ export async function POST(req: NextRequest) {
       { error: "firstName, lastName, and email or phone are required" },
       { status: 422 }
     );
+  }
+  if (email && !isValidEmail(email)) {
+    return NextResponse.json({ error: "email must be a valid email address" }, { status: 422 });
+  }
+  if (phone && !isValidPhone(phone)) {
+    return NextResponse.json({ error: "phone must be a valid 10-digit phone number" }, { status: 422 });
   }
   // Honeypot spam control: bots fill the hidden field.
   if (body.website) {

@@ -17,7 +17,7 @@ export default async function MyDay() {
   const user = await getSession();
   if (!user) redirect("/login");
 
-  const [myTasks, activeDeals, hotLeads, pendingApprovals, recentAudit, fundedThisMonth] = await Promise.all([
+  const [myTasks, activeDeals, freshLeads, pendingApprovals, recentAudit, fundedThisMonth] = await Promise.all([
     db.task.findMany({
       where: { status: { in: ["OPEN", "IN_PROGRESS"] }, ownerRole: user.role === "ADMIN" ? undefined : user.role },
       include: { deal: { select: { id: true, dealNumber: true, dealType: true } } },
@@ -29,7 +29,7 @@ export default async function MyDay() {
       select: { amountCents: true },
     }),
     db.lead.findMany({
-      where: { band: "HOT", stage: { in: ["NEW_LEAD", "CONTACTED"] } },
+      where: { stage: { in: ["NEW_LEAD", "CONTACTED"] } },
       orderBy: { createdAt: "desc" },
       take: 5,
     }),
@@ -144,12 +144,12 @@ export default async function MyDay() {
         </div>
 
         <div className="grid gap-4 content-start">
-          <Section title="Hot leads — speed to lead" pad={false}>
-            {hotLeads.length === 0 ? (
-              <Empty text="No untouched hot leads." />
+          <Section title="New leads — speed to lead" pad={false}>
+            {freshLeads.length === 0 ? (
+              <Empty text="No new leads waiting on first touch." />
             ) : (
               <ul>
-                {hotLeads.map((l) => (
+                {freshLeads.map((l) => (
                   <li key={l.id} className="px-4 py-2.5 border-b border-line3 last:border-b-0 hover:bg-brand-tint/20 transition-colors">
                     <div className="flex items-center gap-2">
                       <Link href={`/leads/${l.id}`} className="text-[13.5px] font-medium text-brand hover:underline truncate">
@@ -159,9 +159,7 @@ export default async function MyDay() {
                         <span className="pill bg-oxide-tint text-oxide font-mono ml-auto">
                           <IconAlert size={11} /> UNTOUCHED
                         </span>
-                      ) : (
-                        <StatusPill status={l.band} />
-                      )}
+                      ) : null}
                     </div>
                     <p className="text-2xs text-faint mt-0.5">
                       {l.dealType || "unclassified"} · {money(l.amountCents, { compact: true })} · {ago(l.createdAt)}

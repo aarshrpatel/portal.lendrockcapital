@@ -13,8 +13,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // ─────────────────────────── Party entities ───────────────────────────
@@ -103,8 +104,6 @@ model Lead {
   amountCents    Int       @default(0)
   fundingTimeline String   @default("") // ASAP | UNDER_30D | D30_90 | OVER_90D | EXPLORING
   creditStated   String    @default("") // EXCELLENT | GOOD | FAIR | POOR | UNKNOWN
-  score          Int       @default(0)
-  band           String    @default("COOL") // HOT | WARM | COOL
   stage          String    @default("NEW_LEAD") // NEW_LEAD | CONTACTED | QUALIFIED | CONVERTED | DEAD
   stageEnteredAt DateTime  @default(now())
   dqCode         String    @default("")
@@ -284,6 +283,22 @@ model DocumentRequest {
 }
 
 // ─────────────────────────── Credit & approvals ───────────────────────────
+
+// Lead hard-knockout criteria (Module 01 §4.4) — rules-as-data like
+// CreditBoxRule. Evaluated at intake by checkKnockouts(); first active
+// rule that matches DQs the lead. The unlicensed-state knockout is NOT
+// a row here — it stays structural, driven by LicensingMatrix.
+model KnockoutRule {
+  id        String   @id @default(cuid())
+  code      String   @unique // DQ_* code stamped on the lead (dqCode/deadReason)
+  label     String // decline reason shown to staff and in the DQ notice
+  field     String // amount_cents | state | use_of_funds | funding_timeline | credit_stated | source | industry | consumer_purpose
+  op        String // LT | GT | EQ | NEQ | IN | NOT_IN | IS_TRUE
+  value     String   @default("") // LT/GT: number · EQ/NEQ: literal · IN/NOT_IN: comma list · IS_TRUE: unused
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
 model CreditBoxRule {
   id       String  @id @default(cuid())

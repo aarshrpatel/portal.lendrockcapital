@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { getSession, can } from "@/lib/auth";
 import { money, ago } from "@/lib/format";
 import { quickAddLead } from "@/app/actions";
 import { Section, StatusPill, TypeBadge, PageHeader } from "@/components/ui";
@@ -7,6 +8,7 @@ import { USE_OF_FUNDS_OPTIONS, TIMELINE_OPTIONS, CREDIT_OPTIONS } from "@/lib/en
 
 export default async function LeadsPage({ searchParams }: { searchParams: { stage?: string } }) {
   const stageFilter = searchParams.stage;
+  const user = await getSession();
   const leads = await db.lead.findMany({
     where: stageFilter ? { stage: stageFilter } : {},
     orderBy: [{ createdAt: "desc" }],
@@ -22,7 +24,13 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
         title="Leads"
         sub="Capture-first: every submission scores, classifies, and routes itself. Your job is the human touch inside the SLA."
         action={
-          <div className="flex rounded-md border border-line overflow-hidden">
+          <div className="flex items-center gap-2">
+            {user && can(user, "config.write") ? (
+              <Link href="/leads/knockouts" className="btn whitespace-nowrap" title="Manage auto-DQ criteria">
+                Knockout rules
+              </Link>
+            ) : null}
+            <div className="flex rounded-md border border-line overflow-hidden">
             {["", "NEW_LEAD", "CONTACTED", "QUALIFIED", "CONVERTED", "DEAD"].map((s) => (
               <Link
                 key={s || "all"}
@@ -35,6 +43,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
                 {s ? <span className="font-mono text-2xs ml-1 opacity-70">{countOf(s)}</span> : null}
               </Link>
             ))}
+            </div>
           </div>
         }
       />
@@ -43,8 +52,15 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
         <form action={quickAddLead} className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
           <input name="firstName" required placeholder="First name" className="input" />
           <input name="lastName" required placeholder="Last name" className="input" />
-          <input name="phone" placeholder="Phone" className="input" />
-          <input name="email" placeholder="Email" className="input" />
+          <input
+            name="phone"
+            type="tel"
+            placeholder="Phone"
+            pattern="^\+?1?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}$"
+            title="Enter a valid 10-digit phone number"
+            className="input"
+          />
+          <input name="email" type="email" placeholder="Email" title="Enter a valid email address" className="input" />
           <input name="companyName" placeholder="Company" className="input" />
           <input name="state" placeholder="State (e.g. TX)" maxLength={2} className="input font-mono uppercase" />
           <select name="useOfFunds" className="input" defaultValue="">
@@ -89,7 +105,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
               <th className="th">Lead</th>
               <th className="th">Pathway</th>
               <th className="th">Amount</th>
-              <th className="th">Score</th>
               <th className="th">Stage</th>
               <th className="th">Source</th>
               <th className="th">State</th>
@@ -108,10 +123,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
                 </td>
                 <td className="td">{l.dealType ? <TypeBadge dealType={l.dealType} /> : <span className="text-faint">—</span>}</td>
                 <td className="td tabular-nums">{money(l.amountCents, { compact: true })}</td>
-                <td className="td">
-                  <span className="tabular-nums font-mono text-[12px]">{l.score}</span>{" "}
-                  <StatusPill status={l.band} />
-                </td>
                 <td className="td">
                   <StatusPill status={l.stage === "DEAD" && l.dqCode ? "FAIL" : l.stage} />
                   {l.dqCode ? <span className="kcode kcode-dead ml-1">{l.dqCode}</span> : null}

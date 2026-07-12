@@ -8,15 +8,16 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { requireUser, sessionCookieName, sessionCookieOptions, mintSessionValue } from "@/lib/auth";
+import { requireUser, can, sessionCookieName, sessionCookieOptions, mintSessionValue } from "@/lib/auth";
 import { audit, transitionDealStage, GateError } from "@/lib/domain/events";
-import { classifyDealType, scoreLead, checkKnockouts } from "@/lib/domain/scoring";
+import { classifyDealType, checkKnockouts, KNOCKOUT_FIELDS, KNOCKOUT_OPS } from "@/lib/domain/scoring";
 import { runCreditBox } from "@/lib/domain/creditbox";
 import { approvalTier } from "@/lib/domain/approvals";
 import { docsForDeal } from "@/lib/domain/docs";
 import { drawAutoChecks, wcLimitCents, WC_SETTINGS } from "@/lib/domain/wc";
 import { distributionSplits } from "@/lib/domain/capital";
 import { playbookFor } from "@/lib/domain/playbooks";
+import { isValidEmail, isValidPhone } from "@/lib/validation";
 
 function reval() {
   revalidatePath("/", "layout");
@@ -63,18 +64,11 @@ export type LeadFormInput = {
 
 export async function createLeadRecord(input: LeadFormInput): Promise<{ leadId: string; dq: string | null }> {
   const dealType = classifyDealType(input.useOfFunds ?? "", input.fundingTimeline ?? "");
-  const { score, band } = scoreLead({
-    amountCents: input.amountCents ?? 0,
-    useOfFunds: input.useOfFunds ?? "",
-    fundingTimeline: input.fundingTimeline ?? "",
-    creditStated: input.creditStated ?? "",
-    source: input.source,
-    email: input.email ?? "",
-    phone: input.phone ?? "",
-    state: input.state ?? "",
-  });
 
-  const licensed = await db.licensingMatrix.findMany({ where: { licensed: true } });
+  const [licensed, knockoutRules] = await Promise.all([
+    db.licensingMatrix.findMany({ where: { licensed: true } }),
+    db.knockoutRule.findMany({ where: { active: true }, orderBy: { createdAt: "asc" } }),
+  ]);
   const licensedStates = new Set(licensed.map((l) => l.state));
   const dq = checkKnockouts(
     {
@@ -87,7 +81,8 @@ export async function createLeadRecord(input: LeadFormInput): Promise<{ leadId: 
       phone: input.phone ?? "",
       state: input.state ?? "",
     },
-    licensedStates
+    licensedStates,
+    knockoutRules
   );
 
   // Dedupe: exact email or last-10 phone (Module 01 §3.4) — oldest survives.
@@ -125,8 +120,6 @@ export async function createLeadRecord(input: LeadFormInput): Promise<{ leadId: 
       brokerId: input.brokerId || null,
       utmSource: input.utmSource ?? "",
       utmCampaign: input.utmCampaign ?? "",
-      score,
-      band,
       ...(dq ? { stage: "DEAD", dqCode: dq.code, deadReason: dq.code } : {}),
     },
   });
@@ -146,19 +139,27 @@ export async function createLeadRecord(input: LeadFormInput): Promise<{ leadId: 
     },
   });
 
-  await audit("SYS", "LEAD_CREATED", "Lead", lead.id, dq ? `Auto-DQ: ${dq.code}` : `Scored ${score} (${band})`);
+  await audit("SYS", "LEAD_CREATED", "Lead", lead.id, dq ? `Auto-DQ: ${dq.code}` : `New ${dealType || "unclassified"} lead`);
   return { leadId: lead.id, dq: dq?.code ?? null };
 }
 
 export async function quickAddLead(formData: FormData) {
   const user = await requireUser();
+  const email = String(formData.get("email") ?? "").trim();
+  const phone = String(formData.get("phone") ?? "").trim();
+  if (email && !isValidEmail(email)) {
+    throw new Error("Enter a valid email address.");
+  }
+  if (phone && !isValidPhone(phone)) {
+    throw new Error("Enter a valid 10-digit phone number.");
+  }
   const amount = Math.round(Number(formData.get("amount") ?? 0) * 100);
   await createLeadRecord({
     source: String(formData.get("source") ?? "QUICK_ADD"),
     firstName: String(formData.get("firstName") ?? ""),
     lastName: String(formData.get("lastName") ?? ""),
-    email: String(formData.get("email") ?? ""),
-    phone: String(formData.get("phone") ?? ""),
+    email,
+    phone,
     companyName: String(formData.get("companyName") ?? ""),
     state: String(formData.get("state") ?? "").toUpperCase(),
     useOfFunds: String(formData.get("useOfFunds") ?? ""),
@@ -317,6 +318,84 @@ export async function convertLead(leadId: string, formData: FormData) {
   await audit(user.role, "LEAD_CONVERTED", "Deal", deal.id, `${dealNumber} (${dealType}/${subType})`);
   reval();
   redirect(`/deals/${deal.id}`);
+}
+
+// ─────────────── knockout rules (Module 01 §4.4 — rules-as-data) ───────────────
+// Config surface: PRIN/ADMIN only ("config.write" resolves through the
+// wildcard capability). Managed at /leads/knockouts.
+
+async function requireConfigWriter() {
+  const user = await requireUser();
+  if (!can(user, "config.write")) throw new Error("Only PRIN or ADMIN can manage knockout rules");
+  return user;
+}
+
+function parseKnockoutRuleForm(formData: FormData) {
+  const label = String(formData.get("label") ?? "").trim();
+  const field = String(formData.get("field") ?? "");
+  const op = String(formData.get("op") ?? "");
+  let value = String(formData.get("value") ?? "").trim();
+
+  if (!label) throw new Error("Rule needs a decline reason (label)");
+  const fieldSpec = KNOCKOUT_FIELDS.find((f) => f.code === field);
+  if (!fieldSpec) throw new Error(`Unknown field: ${field}`);
+  if (!KNOCKOUT_OPS.some((o) => o.code === op)) throw new Error(`Unknown operator: ${op}`);
+
+  if (op === "IS_TRUE") {
+    if (fieldSpec.kind !== "flag") throw new Error(`"is flagged" only applies to flag fields`);
+    value = "";
+  } else {
+    if (fieldSpec.kind === "flag") throw new Error("Flag fields only support the \"is flagged\" operator");
+    if (!value) throw new Error("Rule needs a value");
+    if (op === "LT" || op === "GT") {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 0) throw new Error("Threshold must be a number");
+      // Money fields are entered in dollars; the engine compares cents.
+      value = String(fieldSpec.kind === "money" ? Math.round(n * 100) : n);
+    } else {
+      // Normalize code lists the way the evaluator reads them.
+      value = value.split(",").map((v) => v.trim().toUpperCase()).filter(Boolean).join(",");
+      if (!value) throw new Error("Rule needs a value");
+    }
+  }
+  return { label, field, op, value };
+}
+
+export async function createKnockoutRule(formData: FormData) {
+  const user = await requireConfigWriter();
+  const parsed = parseKnockoutRuleForm(formData);
+  let code = String(formData.get("code") ?? "").trim() || parsed.label;
+  code = code.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  if (!code.startsWith("DQ_")) code = `DQ_${code}`;
+  if (await db.knockoutRule.findUnique({ where: { code } })) {
+    throw new Error(`A rule with code ${code} already exists`);
+  }
+  await db.knockoutRule.create({ data: { code, ...parsed } });
+  await audit(user.role, "KNOCKOUT_RULE_CREATED", "KnockoutRule", code, `${parsed.field} ${parsed.op} ${parsed.value}`);
+  reval();
+}
+
+export async function updateKnockoutRule(ruleId: string, formData: FormData) {
+  const user = await requireConfigWriter();
+  const parsed = parseKnockoutRuleForm(formData);
+  const rule = await db.knockoutRule.update({ where: { id: ruleId }, data: parsed });
+  await audit(user.role, "KNOCKOUT_RULE_UPDATED", "KnockoutRule", rule.code, `${parsed.field} ${parsed.op} ${parsed.value}`);
+  reval();
+}
+
+export async function toggleKnockoutRule(ruleId: string) {
+  const user = await requireConfigWriter();
+  const rule = await db.knockoutRule.findUniqueOrThrow({ where: { id: ruleId } });
+  await db.knockoutRule.update({ where: { id: ruleId }, data: { active: !rule.active } });
+  await audit(user.role, rule.active ? "KNOCKOUT_RULE_PAUSED" : "KNOCKOUT_RULE_RESUMED", "KnockoutRule", rule.code);
+  reval();
+}
+
+export async function deleteKnockoutRule(ruleId: string) {
+  const user = await requireConfigWriter();
+  const rule = await db.knockoutRule.delete({ where: { id: ruleId } });
+  await audit(user.role, "KNOCKOUT_RULE_DELETED", "KnockoutRule", rule.code, rule.label);
+  reval();
 }
 
 // ─────────────── deals ───────────────

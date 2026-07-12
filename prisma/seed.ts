@@ -23,7 +23,7 @@ async function main() {
     db.collateral.deleteMany(), db.dealContact.deleteMany(), db.deal.deleteMany(),
     db.lead.deleteMany(), db.investor.deleteMany(), db.contact.deleteMany(), db.company.deleteMany(),
     db.broker.deleteMany(), db.partnerLender.deleteMany(), db.template.deleteMany(),
-    db.creditBoxRule.deleteMany(), db.licensingMatrix.deleteMany(), db.deadReason.deleteMany(),
+    db.creditBoxRule.deleteMany(), db.knockoutRule.deleteMany(), db.licensingMatrix.deleteMany(), db.deadReason.deleteMany(),
     db.docRequirement.deleteMany(), db.ofacScreen.deleteMany(), db.auditLog.deleteMany(), db.user.deleteMany(),
   ]);
 
@@ -50,6 +50,16 @@ async function main() {
       { state: "NY", licensed: false, licenseType: "", cfdlRequired: true, notes: "NY CFDL + usury exposure — footprint decision pending" },
       { state: "AZ", licensed: false, licenseType: "", cfdlRequired: false, notes: "In-state office requirement — not filed" },
       { state: "NV", licensed: false, licenseType: "", cfdlRequired: false, notes: "License required — not filed" },
+    ],
+  });
+
+  // ── lead knockout rules (Module 01 §4.4 — rules-as-data) ──
+  // DQ_EXCLUDED_STATE is structural (LicensingMatrix), not a row here.
+  await db.knockoutRule.createMany({
+    data: [
+      { code: "DQ_BELOW_MINIMUM", label: "Requested amount below $25k portal minimum", field: "amount_cents", op: "LT", value: "2500000" },
+      { code: "DQ_CONSUMER_PURPOSE", label: "Consumer-purpose request — business-purpose lending only", field: "consumer_purpose", op: "IS_TRUE", value: "" },
+      { code: "DQ_PROHIBITED_INDUSTRY", label: "Prohibited industry per credit policy", field: "industry", op: "IN", value: "ADULT,CANNABIS,GAMBLING,FIREARMS_DEALER,CRYPTO_MINING" },
     ],
   });
 
@@ -194,14 +204,14 @@ async function main() {
 
   // ── standalone leads (pre-conversion pipeline) ──
   const mkLead = (data: Parameters<typeof db.lead.create>[0]["data"]) => db.lead.create({ data });
-  await mkLead({ source: "WEB", formVariant: "apply_full", firstName: "Jordan", lastName: "Reyes", email: "jordan@reyesbuilds.example", phone: "214-555-0187", companyName: "Reyes Builds LLC", state: "TX", dealType: "HM", useOfFunds: "FIX_FLIP", amountCents: $(485_000), fundingTimeline: "ASAP", creditStated: "GOOD", score: 84, band: "HOT", stage: "NEW_LEAD", createdAt: new Date(Date.now() - 22 * 60_000), smsConsent: true, utmSource: "google", utmCampaign: "fixflip-tx" });
-  await mkLead({ source: "WEB", formVariant: "match_engine", firstName: "Whitney", lastName: "Cole", email: "wcole@colemfg.example", companyName: "Cole Manufacturing", state: "OH", dealType: "SBA", useOfFunds: "ACQUISITION", amountCents: $(1_800_000), fundingTimeline: "OVER_90D", creditStated: "EXCELLENT", score: 72, band: "HOT", stage: "NEW_LEAD", createdAt: new Date(Date.now() - 3 * 3600_000) });
-  await mkLead({ source: "BROKER", brokerId: brokerRay.id, firstName: "Marcus", lastName: "Webb", email: "mwebb@webbholdings.example", phone: "512-555-0122", companyName: "Webb Holdings", state: "TX", dealType: "HM", useOfFunds: "RENTAL_BRIDGE", amountCents: $(725_000), fundingTimeline: "UNDER_30D", creditStated: "GOOD", score: 78, band: "HOT", stage: "CONTACTED", firstTouchAt: daysAgo(1), stageEnteredAt: daysAgo(1), createdAt: daysAgo(1) });
-  await mkLead({ source: "WEB", firstName: "Priyanka", lastName: "Shah", email: "pshah@shahlogistics.example", companyName: "Shah Logistics", state: "GA", dealType: "WC", useOfFunds: "WORKING_CAPITAL", amountCents: $(120_000), fundingTimeline: "UNDER_30D", creditStated: "GOOD", score: 61, band: "WARM", stage: "QUALIFIED", firstTouchAt: daysAgo(3), stageEnteredAt: daysAgo(2), createdAt: daysAgo(4), notes: "12-person freight brokerage, seasonal AR swings. Entity borrower confirmed." });
-  await mkLead({ source: "REFERRAL", firstName: "Tom", lastName: "Garrity", email: "tom@garrityhvac.example", companyName: "Garrity HVAC", state: "FL", dealType: "BB", useOfFunds: "EQUIPMENT", amountCents: $(210_000), fundingTimeline: "D30_90", creditStated: "FAIR", score: 58, band: "WARM", stage: "CONTACTED", firstTouchAt: daysAgo(5), stageEnteredAt: daysAgo(5), createdAt: daysAgo(6) });
-  await mkLead({ source: "WEB", firstName: "Dana", lastName: "Kirby", email: "dana@kirbyprops.example", state: "NV", dealType: "HM", useOfFunds: "FIX_FLIP", amountCents: $(300_000), fundingTimeline: "ASAP", creditStated: "GOOD", score: 0, band: "COOL", stage: "DEAD", dqCode: "DQ_EXCLUDED_STATE", deadReason: "DQ_EXCLUDED_STATE", createdAt: daysAgo(2) });
-  await mkLead({ source: "WEB", firstName: "Blake", lastName: "Munson", email: "blake@example.com", state: "TX", useOfFunds: "WORKING_CAPITAL", dealType: "WC", amountCents: $(45_000), fundingTimeline: "EXPLORING", creditStated: "POOR", score: 28, band: "COOL", stage: "DEAD", deadReason: "DEAD_UNRESPONSIVE", stageEnteredAt: daysAgo(9), createdAt: daysAgo(30) });
-  await mkLead({ source: "CSV_IMPORT", nurtureOnly: true, firstName: "Renee", lastName: "Alcott", email: "renee@alcottgroup.example", companyName: "Alcott Group", state: "NC", dealType: "BB", useOfFunds: "BRIDGE_CRE", amountCents: $(950_000), fundingTimeline: "OVER_90D", creditStated: "UNKNOWN", score: 44, band: "WARM", stage: "NEW_LEAD", createdAt: daysAgo(12) });
+  await mkLead({ source: "WEB", formVariant: "apply_full", firstName: "Jordan", lastName: "Reyes", email: "jordan@reyesbuilds.example", phone: "214-555-0187", companyName: "Reyes Builds LLC", state: "TX", dealType: "HM", useOfFunds: "FIX_FLIP", amountCents: $(485_000), fundingTimeline: "ASAP", creditStated: "GOOD", stage: "NEW_LEAD", createdAt: new Date(Date.now() - 22 * 60_000), smsConsent: true, utmSource: "google", utmCampaign: "fixflip-tx" });
+  await mkLead({ source: "WEB", formVariant: "match_engine", firstName: "Whitney", lastName: "Cole", email: "wcole@colemfg.example", companyName: "Cole Manufacturing", state: "OH", dealType: "SBA", useOfFunds: "ACQUISITION", amountCents: $(1_800_000), fundingTimeline: "OVER_90D", creditStated: "EXCELLENT", stage: "NEW_LEAD", createdAt: new Date(Date.now() - 3 * 3600_000) });
+  await mkLead({ source: "BROKER", brokerId: brokerRay.id, firstName: "Marcus", lastName: "Webb", email: "mwebb@webbholdings.example", phone: "512-555-0122", companyName: "Webb Holdings", state: "TX", dealType: "HM", useOfFunds: "RENTAL_BRIDGE", amountCents: $(725_000), fundingTimeline: "UNDER_30D", creditStated: "GOOD", stage: "CONTACTED", firstTouchAt: daysAgo(1), stageEnteredAt: daysAgo(1), createdAt: daysAgo(1) });
+  await mkLead({ source: "WEB", firstName: "Priyanka", lastName: "Shah", email: "pshah@shahlogistics.example", companyName: "Shah Logistics", state: "GA", dealType: "WC", useOfFunds: "WORKING_CAPITAL", amountCents: $(120_000), fundingTimeline: "UNDER_30D", creditStated: "GOOD", stage: "QUALIFIED", firstTouchAt: daysAgo(3), stageEnteredAt: daysAgo(2), createdAt: daysAgo(4), notes: "12-person freight brokerage, seasonal AR swings. Entity borrower confirmed." });
+  await mkLead({ source: "REFERRAL", firstName: "Tom", lastName: "Garrity", email: "tom@garrityhvac.example", companyName: "Garrity HVAC", state: "FL", dealType: "BB", useOfFunds: "EQUIPMENT", amountCents: $(210_000), fundingTimeline: "D30_90", creditStated: "FAIR", stage: "CONTACTED", firstTouchAt: daysAgo(5), stageEnteredAt: daysAgo(5), createdAt: daysAgo(6) });
+  await mkLead({ source: "WEB", firstName: "Dana", lastName: "Kirby", email: "dana@kirbyprops.example", state: "NV", dealType: "HM", useOfFunds: "FIX_FLIP", amountCents: $(300_000), fundingTimeline: "ASAP", creditStated: "GOOD", stage: "DEAD", dqCode: "DQ_EXCLUDED_STATE", deadReason: "DQ_EXCLUDED_STATE", createdAt: daysAgo(2) });
+  await mkLead({ source: "WEB", firstName: "Blake", lastName: "Munson", email: "blake@example.com", state: "TX", useOfFunds: "WORKING_CAPITAL", dealType: "WC", amountCents: $(45_000), fundingTimeline: "EXPLORING", creditStated: "POOR", stage: "DEAD", deadReason: "DEAD_UNRESPONSIVE", stageEnteredAt: daysAgo(9), createdAt: daysAgo(30) });
+  await mkLead({ source: "CSV_IMPORT", nurtureOnly: true, firstName: "Renee", lastName: "Alcott", email: "renee@alcottgroup.example", companyName: "Alcott Group", state: "NC", dealType: "BB", useOfFunds: "BRIDGE_CRE", amountCents: $(950_000), fundingTimeline: "OVER_90D", creditStated: "UNKNOWN", stage: "NEW_LEAD", createdAt: daysAgo(12) });
 
   // ═══════════ deal factory ═══════════
   let dealSeq = 0;
@@ -230,7 +240,7 @@ async function main() {
         source: "WEB", firstName: s.first, lastName: s.last, email: s.email, phone: s.phone,
         companyName: s.legalName, state: s.state, dealType: s.dealType, amountCents: $(s.amount),
         useOfFunds: s.useOfProceeds, fundingTimeline: "UNDER_30D", creditStated: "GOOD",
-        score: 75, band: "HOT", stage: "CONVERTED", firstTouchAt: daysAgo(s.startedDaysAgo),
+        stage: "CONVERTED", firstTouchAt: daysAgo(s.startedDaysAgo),
         createdAt: daysAgo(s.startedDaysAgo + 2),
       },
     });
@@ -600,7 +610,7 @@ async function main() {
   // sprinkle of audit history
   await db.auditLog.createMany({
     data: [
-      { actor: "SYS", action: "LEAD_CREATED", objectType: "Lead", objectId: "-", detail: "Web lead scored 84 (HOT)", createdAt: new Date(Date.now() - 25 * 60_000) },
+      { actor: "SYS", action: "LEAD_CREATED", objectType: "Lead", objectId: "-", detail: "New HM lead", createdAt: new Date(Date.now() - 25 * 60_000) },
       { actor: "LO", action: "LEAD_FIRST_TOUCH", objectType: "Lead", objectId: "-", detail: "Maya Chen", createdAt: daysAgo(1) },
       { actor: "UW", action: "PRESCREEN_RUN", objectType: "Deal", objectId: d1.id, detail: "PASS_WITH_EXCEPTIONS (1 flag)", createdAt: daysAgo(2) },
       { actor: "SYS", action: "WC_DRAW_REVIEW", objectType: "WcDraw", objectId: "-", detail: "$12,000 over auto cap — routed to PROC", createdAt: daysAgo(1) },

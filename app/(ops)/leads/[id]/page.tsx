@@ -40,16 +40,12 @@ export default async function LeadDetail({ params }: { params: { id: string } })
           <div className="ml-auto flex items-center gap-3">
             <div className="flex items-stretch divide-x divide-line2 rounded-lg border border-line2 bg-page/50">
               {[
-                ["Score", `${lead.score}/100`],
-                ["Band", lead.band],
                 ["Amount", money(lead.amountCents, { compact: true })],
                 ["Timeline", lead.fundingTimeline ? lead.fundingTimeline.replace(/_/g, " ") : "—"],
               ].map(([l, v]) => (
                 <div key={String(l)} className="px-4 py-2 text-center">
                   <div className="label">{l}</div>
-                  <div className={`text-[14.5px] font-serif font-semibold tabular-nums mt-0.5 ${
-                    l === "Band" ? (v === "HOT" ? "text-oxide" : v === "WARM" ? "text-bronze" : "text-muted") : "text-ink"
-                  }`}>{v}</div>
+                  <div className="text-[14.5px] font-serif font-semibold tabular-nums mt-0.5 text-ink">{v}</div>
                 </div>
               ))}
             </div>

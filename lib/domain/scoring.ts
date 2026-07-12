@@ -1,7 +1,6 @@
-// Module 01 — lead scoring (fixed 100-point formula), hard knockouts, and
-// deal-type classification from use_of_funds.
+// Module 01 — hard knockouts and deal-type classification from use_of_funds.
 
-import { LEAD_BANDS, USE_OF_FUNDS_OPTIONS } from "@/lib/enums";
+import { USE_OF_FUNDS_OPTIONS } from "@/lib/enums";
 
 export type LeadInput = {
   amountCents: number;
@@ -26,79 +25,97 @@ export function classifyDealType(useOfFunds: string, fundingTimeline: string): s
   return opt.dealType;
 }
 
-// ── scoring (amount 20 · strength 20 · type 15 · timeline 15 · credit 10 · source 10 · contact 10)
-export function scoreLead(input: LeadInput): { score: number; band: string } {
-  let score = 0;
-
-  const amt = input.amountCents / 100;
-  if (amt >= 1_000_000) score += 20;
-  else if (amt >= 500_000) score += 17;
-  else if (amt >= 250_000) score += 14;
-  else if (amt >= 100_000) score += 10;
-  else if (amt >= 50_000) score += 6;
-  else if (amt > 0) score += 3;
-
-  // deal strength proxy: a concrete use of funds beats "exploring"
-  if (input.useOfFunds) score += input.fundingTimeline === "EXPLORING" ? 8 : 20;
-
-  const typeScore: Record<string, number> = { HM: 15, BB: 13, WC: 11, SBA: 8 };
-  score += typeScore[classifyDealType(input.useOfFunds, input.fundingTimeline)] ?? 0;
-
-  const timelineScore: Record<string, number> = {
-    ASAP: 15,
-    UNDER_30D: 13,
-    D30_90: 9,
-    OVER_90D: 5,
-    EXPLORING: 1,
-  };
-  score += timelineScore[input.fundingTimeline] ?? 0;
-
-  const creditScore: Record<string, number> = {
-    EXCELLENT: 10,
-    GOOD: 8,
-    FAIR: 5,
-    UNKNOWN: 3,
-    POOR: 1,
-  };
-  score += creditScore[input.creditStated] ?? 0;
-
-  const sourceScore: Record<string, number> = {
-    REFERRAL: 10,
-    BROKER: 8,
-    WEB: 6,
-    EVENT: 5,
-    QUICK_ADD: 5,
-    EMAIL_PARSE: 4,
-    CSV_IMPORT: 2,
-  };
-  score += sourceScore[input.source] ?? 3;
-
-  if (input.email) score += 5;
-  if (input.phone) score += 5;
-
-  const band = score >= LEAD_BANDS.HOT ? "HOT" : score >= LEAD_BANDS.WARM ? "WARM" : "COOL";
-  return { score, band };
-}
-
 // ── hard knockouts (Module 01 §4.4) ───────────────────────────────
+// Rules live in the KnockoutRule table (data, not code — same pattern as
+// CreditBoxRule). PRIN/ADMIN manage them at /leads/knockouts. The
+// unlicensed-state check stays structural: LicensingMatrix is the
+// compliance source of truth and is not editable as a knockout row.
 export type Knockout = { code: string; label: string };
 
+export type KnockoutInput = LeadInput & { consumerPurpose?: boolean; industry?: string };
+
+export type KnockoutRuleSpec = {
+  code: string;
+  label: string;
+  field: string;
+  op: string;
+  value: string;
+  active: boolean;
+};
+
+// Fields a rule can test. `collected` marks what the intake forms capture
+// today — rules on un-collected fields are legal but dormant until the
+// form asks for the answer (unknown values never DQ; UW verifies later).
+export const KNOCKOUT_FIELDS = [
+  { code: "amount_cents", label: "Requested amount", kind: "money", collected: true },
+  { code: "state", label: "State", kind: "text", collected: true },
+  { code: "use_of_funds", label: "Use of funds", kind: "text", collected: true },
+  { code: "funding_timeline", label: "Funding timeline", kind: "text", collected: true },
+  { code: "credit_stated", label: "Stated credit", kind: "text", collected: true },
+  { code: "source", label: "Lead source", kind: "text", collected: true },
+  { code: "industry", label: "Industry", kind: "text", collected: false },
+  { code: "consumer_purpose", label: "Consumer-purpose flag", kind: "flag", collected: false },
+] as const;
+
+export const KNOCKOUT_OPS = [
+  { code: "LT", label: "is below" },
+  { code: "GT", label: "is above" },
+  { code: "EQ", label: "equals" },
+  { code: "NEQ", label: "does not equal" },
+  { code: "IN", label: "is one of" },
+  { code: "NOT_IN", label: "is not one of" },
+  { code: "IS_TRUE", label: "is flagged" },
+] as const;
+
+function knockoutFieldValue(input: KnockoutInput, field: string): string | number | boolean | undefined {
+  switch (field) {
+    case "amount_cents": return input.amountCents;
+    case "state": return input.state;
+    case "use_of_funds": return input.useOfFunds;
+    case "funding_timeline": return input.fundingTimeline;
+    case "credit_stated": return input.creditStated;
+    case "source": return input.source;
+    case "industry": return input.industry;
+    case "consumer_purpose": return input.consumerPurpose;
+    default: return undefined;
+  }
+}
+
+export function ruleViolated(actual: string | number | boolean | undefined, op: string, value: string): boolean {
+  if (op === "IS_TRUE") return actual === true;
+  // Unknown/empty/zero values never DQ — same principle as the credit box.
+  if (actual === undefined || actual === null || actual === "" || actual === 0 || actual === false) return false;
+  if (op === "LT" || op === "GT") {
+    const limit = Number(value);
+    const n = Number(actual);
+    if (!Number.isFinite(limit) || !Number.isFinite(n)) return false;
+    return op === "LT" ? n < limit : n > limit;
+  }
+  const s = String(actual).trim().toUpperCase();
+  const list = value.split(",").map((v) => v.trim().toUpperCase()).filter(Boolean);
+  if (list.length === 0) return false;
+  switch (op) {
+    case "EQ": return s === list[0];
+    case "NEQ": return s !== list[0];
+    case "IN": return list.includes(s);
+    case "NOT_IN": return !list.includes(s);
+    default: return false;
+  }
+}
+
 export function checkKnockouts(
-  input: LeadInput & { consumerPurpose?: boolean; industry?: string },
-  licensedStates: Set<string>
+  input: KnockoutInput,
+  licensedStates: Set<string>,
+  rules: KnockoutRuleSpec[]
 ): Knockout | null {
   if (input.state && licensedStates.size > 0 && !licensedStates.has(input.state)) {
     return { code: "DQ_EXCLUDED_STATE", label: `Not licensed to lend in ${input.state}` };
   }
-  if (input.consumerPurpose) {
-    return { code: "DQ_CONSUMER_PURPOSE", label: "Consumer-purpose request — business-purpose lending only" };
-  }
-  if (input.amountCents > 0 && input.amountCents < 2_500_000) {
-    return { code: "DQ_BELOW_MINIMUM", label: "Requested amount below $25k portal minimum" };
-  }
-  const prohibited = ["ADULT", "CANNABIS", "GAMBLING", "FIREARMS_DEALER", "CRYPTO_MINING"];
-  if (input.industry && prohibited.includes(input.industry)) {
-    return { code: "DQ_PROHIBITED_INDUSTRY", label: "Prohibited industry per credit policy" };
+  for (const rule of rules) {
+    if (!rule.active) continue;
+    if (ruleViolated(knockoutFieldValue(input, rule.field), rule.op, rule.value)) {
+      return { code: rule.code, label: rule.label };
+    }
   }
   return null;
 }
