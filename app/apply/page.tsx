@@ -6,6 +6,7 @@
 // a workable lead with a chase sequence.
 
 import { useState } from "react";
+import { INDUSTRY_OPTIONS } from "@/lib/enums";
 
 const USE_OF_FUNDS = [
   ["FIX_FLIP", "Fix & flip", "Buy and renovate to sell"],
@@ -40,7 +41,8 @@ export default function ApplyPage() {
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     firstName: "", lastName: "", email: "", phone: "", companyName: "",
-    state: "", useOfFunds: "", amount: "", fundingTimeline: "", creditStated: "", smsConsent: false,
+    state: "", useOfFunds: "", amount: "", fundingTimeline: "", creditStated: "",
+    industry: "", purpose: "", smsConsent: false,
   });
 
   const set = (k: string, v: string | boolean) => setForm((f) => ({ ...f, [k]: v }));
@@ -148,6 +150,17 @@ export default function ApplyPage() {
                 <select className="input py-2" value={form.creditStated} onChange={(e) => set("creditStated", e.target.value)}>
                   <option value="" disabled>Credit (estimate is fine)</option>
                   {CREDIT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <select className="input py-2" value={form.industry} onChange={(e) => set("industry", e.target.value)}>
+                  <option value="" disabled>What industry?</option>
+                  {INDUSTRY_OPTIONS.map((o) => <option key={o.code} value={o.code}>{o.label}</option>)}
+                </select>
+                <select className="input py-2" value={form.purpose} onChange={(e) => set("purpose", e.target.value)}>
+                  <option value="" disabled>Funds will be used for…</option>
+                  <option value="BUSINESS">Business purposes</option>
+                  <option value="CONSUMER">Personal / household use</option>
                 </select>
               </div>
               <label className="flex items-center gap-2 text-[13px] text-body cursor-pointer">

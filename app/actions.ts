@@ -56,6 +56,8 @@ export type LeadFormInput = {
   amountCents?: number;
   fundingTimeline?: string;
   creditStated?: string;
+  industry?: string;
+  consumerPurpose?: boolean;
   smsConsent?: boolean;
   brokerId?: string;
   utmSource?: string;
@@ -80,6 +82,8 @@ export async function createLeadRecord(input: LeadFormInput): Promise<{ leadId: 
       email: input.email ?? "",
       phone: input.phone ?? "",
       state: input.state ?? "",
+      industry: input.industry ?? "",
+      consumerPurpose: input.consumerPurpose ?? false,
     },
     licensedStates,
     knockoutRules
@@ -116,6 +120,8 @@ export async function createLeadRecord(input: LeadFormInput): Promise<{ leadId: 
       amountCents: input.amountCents ?? 0,
       fundingTimeline: input.fundingTimeline ?? "",
       creditStated: input.creditStated ?? "",
+      industry: input.industry ?? "",
+      consumerPurpose: input.consumerPurpose ?? false,
       smsConsent: input.smsConsent ?? false,
       brokerId: input.brokerId || null,
       utmSource: input.utmSource ?? "",
@@ -166,6 +172,8 @@ export async function quickAddLead(formData: FormData) {
     amountCents: amount,
     fundingTimeline: String(formData.get("fundingTimeline") ?? ""),
     creditStated: String(formData.get("creditStated") ?? "UNKNOWN"),
+    industry: String(formData.get("industry") ?? ""),
+    consumerPurpose: String(formData.get("purpose") ?? "BUSINESS") === "CONSUMER",
   });
   await audit(user.role, "LEAD_QUICK_ADD", "Lead", "-", `by ${user.name}`);
   reval();

@@ -4,7 +4,7 @@ import { getSession, can } from "@/lib/auth";
 import { money, ago } from "@/lib/format";
 import { quickAddLead } from "@/app/actions";
 import { Section, StatusPill, TypeBadge, PageHeader } from "@/components/ui";
-import { USE_OF_FUNDS_OPTIONS, TIMELINE_OPTIONS, CREDIT_OPTIONS } from "@/lib/enums";
+import { USE_OF_FUNDS_OPTIONS, TIMELINE_OPTIONS, CREDIT_OPTIONS, INDUSTRY_OPTIONS } from "@/lib/enums";
 
 export default async function LeadsPage({ searchParams }: { searchParams: { stage?: string } }) {
   const stageFilter = searchParams.stage;
@@ -55,8 +55,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
           <input
             name="phone"
             type="tel"
+            inputMode="tel"
             placeholder="Phone"
-            pattern="^\+?1?[-.\s]?\(?[2-9]\d{2}\)?[-.\s]?[2-9]\d{2}[-.\s]?\d{4}$"
+            pattern="[0-9()+._ -]{10,20}"
             title="Enter a valid 10-digit phone number"
             className="input"
           />
@@ -87,6 +88,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: { stag
                 {o.label}
               </option>
             ))}
+          </select>
+          <select name="industry" className="input" defaultValue="">
+            <option value="">Industry…</option>
+            {INDUSTRY_OPTIONS.map((o) => (
+              <option key={o.code} value={o.code}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <select name="purpose" className="input" defaultValue="BUSINESS" title="Consumer-purpose requests auto-DQ — business-purpose lending only">
+            <option value="BUSINESS">Business purpose</option>
+            <option value="CONSUMER">Consumer purpose</option>
           </select>
           <select name="source" className="input" defaultValue="QUICK_ADD">
             <option value="QUICK_ADD">Phone</option>

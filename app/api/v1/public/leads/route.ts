@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
     amountCents: Math.round(Number(body.amount ?? 0) * 100),
     fundingTimeline: String(body.fundingTimeline ?? ""),
     creditStated: String(body.creditStated ?? "UNKNOWN"),
+    industry: String(body.industry ?? ""),
+    consumerPurpose: Boolean(body.consumerPurpose) || String(body.purpose ?? "") === "CONSUMER",
     smsConsent: Boolean(body.smsConsent),
     utmSource: String(body.utmSource ?? ""),
     utmCampaign: String(body.utmCampaign ?? ""),

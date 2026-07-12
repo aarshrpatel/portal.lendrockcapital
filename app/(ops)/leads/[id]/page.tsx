@@ -71,6 +71,8 @@ export default async function LeadDetail({ params }: { params: { id: string } })
               <div><dt className="label">Use of funds</dt><dd className="text-ink">{lead.useOfFunds || "—"}</dd></div>
               <div><dt className="label">Timeline</dt><dd className="text-ink">{lead.fundingTimeline || "—"}</dd></div>
               <div><dt className="label">Stated credit</dt><dd className="text-ink">{lead.creditStated || "—"}</dd></div>
+              <div><dt className="label">Industry</dt><dd className="text-ink">{lead.industry || "—"}</dd></div>
+              <div><dt className="label">Purpose</dt><dd className={lead.consumerPurpose ? "text-oxide font-medium" : "text-ink"}>{lead.consumerPurpose ? "CONSUMER (auto-DQ)" : "Business"}</dd></div>
               <div><dt className="label">State</dt><dd className="font-mono">{lead.state || "—"}</dd></div>
               <div><dt className="label">Source</dt><dd>{lead.source}{lead.utmSource ? ` · ${lead.utmSource}` : ""}</dd></div>
               <div><dt className="label">Email</dt><dd>{lead.email || "—"}</dd></div>

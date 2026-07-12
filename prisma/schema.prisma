@@ -104,6 +104,8 @@ model Lead {
   amountCents    Int       @default(0)
   fundingTimeline String   @default("") // ASAP | UNDER_30D | D30_90 | OVER_90D | EXPLORING
   creditStated   String    @default("") // EXCELLENT | GOOD | FAIR | POOR | UNKNOWN
+  industry       String    @default("") // INDUSTRY_OPTIONS code (lib/enums.ts); knockout screening
+  consumerPurpose Boolean  @default(false) // true = personal/family/household — auto-DQ, business-purpose only
   stage          String    @default("NEW_LEAD") // NEW_LEAD | CONTACTED | QUALIFIED | CONVERTED | DEAD
   stageEnteredAt DateTime  @default(now())
   dqCode         String    @default("")

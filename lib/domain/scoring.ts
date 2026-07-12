@@ -53,8 +53,8 @@ export const KNOCKOUT_FIELDS = [
   { code: "funding_timeline", label: "Funding timeline", kind: "text", collected: true },
   { code: "credit_stated", label: "Stated credit", kind: "text", collected: true },
   { code: "source", label: "Lead source", kind: "text", collected: true },
-  { code: "industry", label: "Industry", kind: "text", collected: false },
-  { code: "consumer_purpose", label: "Consumer-purpose flag", kind: "flag", collected: false },
+  { code: "industry", label: "Industry", kind: "text", collected: true },
+  { code: "consumer_purpose", label: "Consumer-purpose flag", kind: "flag", collected: true },
 ] as const;
 
 export const KNOCKOUT_OPS = [

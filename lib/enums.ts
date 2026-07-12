@@ -154,6 +154,28 @@ export const CREDIT_OPTIONS = [
   { code: "UNKNOWN", label: "Not sure" },
 ];
 
+// Industry taxonomy for knockout screening (Module 01 §4.4). Codes are what
+// KnockoutRule IN/NOT_IN lists match against — keep them stable.
+export const INDUSTRY_OPTIONS = [
+  { code: "REAL_ESTATE", label: "Real estate investment" },
+  { code: "CONSTRUCTION", label: "Construction / trades" },
+  { code: "RESTAURANT", label: "Restaurant / food service" },
+  { code: "RETAIL", label: "Retail" },
+  { code: "ECOMMERCE", label: "E-commerce" },
+  { code: "TRUCKING", label: "Trucking / logistics" },
+  { code: "HEALTHCARE", label: "Healthcare / medical" },
+  { code: "PROFESSIONAL_SERVICES", label: "Professional services" },
+  { code: "MANUFACTURING", label: "Manufacturing" },
+  { code: "HOSPITALITY", label: "Hospitality / lodging" },
+  { code: "AUTO_SERVICES", label: "Auto sales / services" },
+  { code: "ADULT", label: "Adult entertainment" },
+  { code: "CANNABIS", label: "Cannabis" },
+  { code: "GAMBLING", label: "Gambling / gaming" },
+  { code: "FIREARMS_DEALER", label: "Firearms dealer" },
+  { code: "CRYPTO_MINING", label: "Crypto mining" },
+  { code: "OTHER", label: "Other" },
+];
+
 export const DOC_CATEGORIES = [
   "ENTITY",
   "GUARANTOR",
